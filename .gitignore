@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+data/
+*.zip
+
+.venv/
+my_test_run/
+mini_test/
+mini_out/
+compare.png

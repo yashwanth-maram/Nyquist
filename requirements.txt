@@ -1,0 +1,9 @@
+# Minimal set required by evaluate.py.
+# Kept deliberately small: every extra pin is another way installation can fail
+# on a reviewer's machine.
+torch>=2.0.0
+numpy>=1.24.0
+
+# Additionally required by train.py only:
+# pytorch-msssim>=1.0.0
+# scikit-learn>=1.3.0
