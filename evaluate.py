@@ -5,8 +5,9 @@ Inference script. Run as-is; no manual edits required.
 
     python evaluate.py --input-dir <dir of .npy> --output-dir <dir>
 
-Reads every .npy in --input-dir, restores it at 2x resolution, and writes the
-result to --output-dir under the SAME filename.
+Accepts a single .npy file, a flat directory, or nested subdirectories. Writes
+each restored image to --output-dir under the SAME filename, mirroring any
+subdirectory structure.
 
 Self-contained by design: the model definition is duplicated here rather than
 imported from src/, so a broken PYTHONPATH or a missing package cannot stop the
@@ -161,7 +162,7 @@ class Restorer(nn.Module):
     dgate lets the network modulate denoising strength from the measured noise
     level, so a nearly clean input passes through nearly unchanged. Without it
     the model applies fixed denoising and damages low-noise images (measured:
-    -4.2 dB on clean input before the gate was added).
+    -4.3 dB on clean input before the gate was added).
     """
     def __init__(self, dim=64, cdim=64):
         super().__init__()
@@ -235,10 +236,23 @@ def restore(net, y, ensemble=True):
     return (acc / 8).clamp(0, 1)
 
 
+def find_inputs(path):
+    """Return (root, [relative paths]). Accepts a file, a flat dir, or nested dirs."""
+    if os.path.isfile(path):
+        return os.path.dirname(os.path.abspath(path)), [os.path.basename(path)]
+    files = []
+    for dirpath, _, names in os.walk(path):
+        for f in names:
+            if f.endswith('.npy') and not f.startswith('._'):
+                files.append(os.path.relpath(os.path.join(dirpath, f), path))
+    return path, sorted(files)
+
+
 def main():
     p = argparse.ArgumentParser(
         description="Restore degraded semiconductor inspection images.")
-    p.add_argument('--input-dir', required=True, help='directory of .npy inputs')
+    p.add_argument('--input-dir', required=True,
+                   help='.npy file, or directory (searched recursively)')
     p.add_argument('--output-dir', required=True, help='directory for restored .npy')
     p.add_argument('--weights', default=None,
                    help='path to weights (default: weights/model.pt beside this script)')
@@ -252,37 +266,38 @@ def main():
     weights = args.weights or os.path.join(here, 'weights', 'model.pt')
     if not os.path.exists(weights):
         sys.exit(f"ERROR: weights not found at {weights}\n"
-                 f"See README.md - download the file into weights/ or pass --weights")
+                 f"See README.md - place the file at weights/model.pt or pass --weights")
+    if not os.path.exists(args.input_dir):
+        sys.exit(f"ERROR: input path does not exist: {args.input_dir}")
 
     dev = args.device or ('cuda' if torch.cuda.is_available() else 'cpu')
     os.makedirs(args.output_dir, exist_ok=True)
 
     sd = torch.load(weights, map_location=dev)
-    dim = sd['inp.weight'].shape[0]          # infer width from checkpoint
+    dim = sd['inp.weight'].shape[0]                 # infer width from checkpoint
     net = Restorer(dim=dim).to(dev)
     net.load_state_dict(sd)
     net.eval()
 
-    files = sorted(f for f in os.listdir(args.input_dir)
-                   if f.endswith('.npy') and not f.startswith('._'))
+    root, files = find_inputs(args.input_dir)
     if not files:
-        sys.exit(f"ERROR: no .npy files in {args.input_dir}")
+        sys.exit(f"ERROR: no .npy files found under {args.input_dir}")
 
     n_par = sum(q.numel() for q in net.parameters())
-    print(f"device      : {dev}"
+    print(f"device       : {dev}"
           f"{' (' + torch.cuda.get_device_name(0) + ')' if dev == 'cuda' else ''}")
-    print(f"parameters  : {n_par/1e6:.2f} M")
+    print(f"parameters   : {n_par/1e6:.2f} M")
     print(f"self-ensemble: {'off' if args.no_ensemble else 'on (8x)'}")
-    print(f"inputs      : {len(files)} files from {args.input_dir}")
-    print(f"outputs     : {args.output_dir}", flush=True)
+    print(f"inputs       : {len(files)} files from {args.input_dir}")
+    print(f"outputs      : {args.output_dir}", flush=True)
 
     # group by shape so batches are homogeneous (handles mixed 128 and 256 inputs)
     shapes = {}
     for f in files:
-        s = np.load(os.path.join(args.input_dir, f), mmap_mode='r').shape
+        s = np.load(os.path.join(root, f), mmap_mode='r').shape
         shapes.setdefault(s, []).append(f)
     if len(shapes) > 1:
-        print(f"note        : mixed input sizes {list(shapes.keys())}", flush=True)
+        print(f"note         : mixed input sizes {sorted(shapes.keys())}", flush=True)
 
     if dev == 'cuda':
         torch.cuda.synchronize()
@@ -293,7 +308,7 @@ def main():
         for shape, group in shapes.items():
             for i in range(0, len(group), args.batch_size):
                 chunk = group[i:i + args.batch_size]
-                arr = np.stack([np.load(os.path.join(args.input_dir, f))
+                arr = np.stack([np.load(os.path.join(root, f))
                                 for f in chunk]).astype(np.float32)
                 # NOTE: input is deliberately NOT clipped. Speckle pushes up to
                 # 12% of pixels beyond [0,1]; clipping destroys real signal.
@@ -301,7 +316,11 @@ def main():
                 out = restore(net, y, ensemble=not args.no_ensemble)
                 out = out.cpu().numpy()[:, 0].astype(np.float32)
                 for f, a in zip(chunk, out):
-                    np.save(os.path.join(args.output_dir, f), a)
+                    dst = os.path.join(args.output_dir, f)
+                    d = os.path.dirname(dst)
+                    if d:
+                        os.makedirs(d, exist_ok=True)
+                    np.save(dst, a)
                 done += len(chunk)
                 print(f"  {done}/{len(files)}", flush=True)
 
