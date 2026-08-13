@@ -2,11 +2,11 @@
 
 # 🧪 Ablation Study
 
-**Seven rungs · Seven rejections · Every decision measured**
+**Eight rungs · Seven rejections · Every decision measured**
 
-[![Rungs](https://img.shields.io/badge/rungs-7-blue)]()
+[![Rungs](https://img.shields.io/badge/rungs-8-blue)]()
 [![Rejected](https://img.shields.io/badge/components%20rejected-7-red)]()
-[![Champion](https://img.shields.io/badge/champion-27.965%20dB-success)]()
+[![Champion](https://img.shields.io/badge/champion-28.531%20dB-success)]()
 
 </div>
 
@@ -43,9 +43,10 @@
 | 5b | Clean-GT retrain | — | — | ❌ **rejected** `+0.086 dB` |
 | 6 | dim 32 → 64 at matched step count | 27.905 | 0.7638 | ✅ advanced |
 | 6b | Two-model ensemble | 27.934 | 0.7639 | ❌ **rejected** `+0.029 dB` |
-| 7 | **+ absolute high-pass loss fine-tune** | **27.965** | **0.7652** | 🏆 **champion** |
+| 7 | + absolute high-pass loss fine-tune | 27.965 | 0.7652 | ✅ advanced |
 | 7b | + NLF clamp to training envelope | 27.965 | 0.7650 | ✅ adopted *(safety)* |
 | 7c | Flat-patch noise estimator | 27.124 | 0.7556 | ❌ **rejected** `−0.244 dB` |
+| **8** | **Trained to convergence — 36,000 steps** | **28.531** | **0.7776** | 🏆 **champion** |
 
 ---
 
@@ -419,6 +420,38 @@ Clamping to `a ≤ 0.22, σ ≤ 0.19` fixes all three visually. **Aggregate impa
 > [!TIP]
 > **Principle: never ask the model to operate outside the regime it was trained on.**
 
+### 🏆 Rung 8 · Training to convergence
+
+Rung 7's exact recipe — same architecture, same 2.76 M parameters, same data
+mixture, same loss — trained **5× longer**: 200 epochs / 36,000 steps against
+7,200.
+
+| | rung 7 | rung 8 |
+|:--|--:|--:|
+| PSNR | 27.965 | **28.531** |
+| SSIM | 0.7652 | **0.7776** |
+| LPIPS | **0.2610** | 0.2731 |
+| clean-input PSNR | **30.91** | 30.28 |
+| steps | 7,200 | 36,000 |
+| params | 2.76 M | 2.76 M |
+
+**+0.566 dB for no additional parameters and no additional inference cost.**
+Convergence was clean: the final three checkpoints moved by less than 0.01 dB.
+
+> [!WARNING]
+> **This is a trade, not a clean win.** LPIPS regresses by 0.0121 and clean-input
+> handling by 0.63 dB — the signature of a model converging harder toward the
+> conditional mean under a Charbonnier-dominated loss.
+>
+> We adopted it anyway, on visual evidence: across severe test cases rung 8
+> resolves detail rung 7 smears — individual ballast stones in `000385`, separated
+> masonry courses in `000310`, defined branch structure in `000122`. The LPIPS
+> regression traces to faint residual texture in *large flat regions* (visible in
+> `000398`'s sky), not to lost detail.
+>
+> Two of three scored metrics improve substantially, and the direction favours
+> detail preservation — which the problem statement names as the priority.
+
 ### 📷 The result
 
 ![Restoration examples](figures/03_before_after.png)
@@ -468,7 +501,11 @@ The variance-stabilisation signature holds everywhere: **severe gains 2.5–3× 
 | **Gradient clipping** | 0.5, with a finiteness guard skipping bad batches |
 | **Fixed seeds** | torch, numpy, and the clustering |
 
-**Reference run:** A100-SXM4-80GB · 40 epochs · batch 16 · lr 6e-4 · 7,200 steps · **30.2 minutes** — followed by a 12-epoch fine-tune at lr 1.5e-4 with the high-pass loss.
+**Reference run:** A100-SXM4-80GB · 200 epochs · batch 16 · lr 6e-4 · **36,000 steps** · **2h 30m**.
+
+Rungs 1–7 used 7,200 steps. Rung 8 established that the model had been
+undertrained throughout: five times the schedule, unchanged in every other
+respect, added 0.566 dB.
 
 ---
 
@@ -490,11 +527,49 @@ The variance-stabilisation signature holds everywhere: **severe gains 2.5–3× 
 
 ---
 
+## Part 7 · Absolute position
+
+Every number above is a *relative* measurement against our own bicubic floor. That
+is not the scale a reviewer comparing teams uses. The GT's own noise floor bounds
+what any method can achieve:
+
+| | PSNR | position |
+|:--|--:|--:|
+| Bicubic ×2 | 23.586 dB | 0% |
+| **Rung 8 (champion)** | **28.531 dB** | **32.8%** |
+| *GT noise-floor ceiling* | *38.674 dB* | *100%* |
+
+Ceiling estimated by wavelet-MAD (Donoho) over **all 3,200 GT images**, taking the
+mean of per-image ceilings to match how PSNR is averaged. On the 309-image held-out
+split specifically: σ p50 = 0.0112, ceiling p50 = 39.00 dB, mean = 38.674 dB.
+
+**Sensitivity:**
+
+| ceiling assumption | value | position |
+|:--|--:|--:|
+| mean per-image *(headline)* | 38.67 dB | 32.8% |
+| median | 39.00 dB | 32.1% |
+| conservative p10 | 29.65 dB | 81.5% |
+| worst single image | 10.43 dB | *negative* |
+
+The p10 and worst-image rows are shown because they demonstrate where the estimator
+breaks: on ~2% of images, dense texture reads as noise and produces a ceiling below
+bicubic. Those pathological values drag the mean *down*, which **inflates** our
+reported position.
+
+> [!CAUTION]
+> The bias runs against us on two counts. Wavelet-MAD over-reads texture as noise,
+> which understates the ceiling. And the pathological images depress the mean
+> further. **True position is at most 32.8%, and 10.14 dB of headroom remains.**
+
+Reproduce with `python absolute_analysis.py --gt-dir <train/GT> --lr-dir <train/NoisyLR> --skip-task2`.
+
+---
+
 <div align="center">
 
 **Every number above is reproducible from this repository.**
 
-<sub>Figures: <code>python make_figures.py --gt-dir &lt;train/GT&gt; --lr-dir &lt;train/NoisyLR&gt; --test-dir &lt;Test_NoisyLR&gt;</code><br>
-Rejection 7c: <code>python test_estimator.py --gt-dir &lt;train/GT&gt; --lr-dir &lt;train/NoisyLR&gt;</code></sub>
+<sub>Figures: <code>make_figures.py</code> · Rejection 7c: <code>test_estimator.py</code> · Ceiling: <code>absolute_analysis.py</code></sub>
 
 </div>

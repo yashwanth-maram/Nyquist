@@ -8,16 +8,16 @@
 [![Python](https://img.shields.io/badge/Python-3.10%20|%203.11%20|%203.12-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Model](https://img.shields.io/badge/model-2.76M%20params%20·%2011MB-blue)]()
-[![Speed](https://img.shields.io/badge/inference-3.68%20ms%2Fimage-success)]()
+[![Speed](https://img.shields.io/badge/inference-3.66%20ms%2Fimage-success)]()
 
 **SEMICON India Hackathon 2026 · Problem Statement 1 · KLA**
 
 <table>
 <tr>
-<td align="center"><b>PSNR</b><br><code>23.59 → 27.97 dB</code><br><sub><b>+4.38</b></sub></td>
-<td align="center"><b>SSIM</b><br><code>0.572 → 0.765</code><br><sub><b>+0.193</b></sub></td>
-<td align="center"><b>LPIPS</b><br><code>0.415 → 0.261</code><br><sub><b>−37%</b></sub></td>
-<td align="center"><b>Severe noise</b><br><code>15.68 → 23.83 dB</code><br><sub><b>+8.16</b></sub></td>
+<td align="center"><b>PSNR</b><br><code>28.531 dB</code><br><sub>ceiling 38.67</sub></td>
+<td align="center"><b>SSIM</b><br><code>0.7776</code><br><sub>bicubic 0.5721</sub></td>
+<td align="center"><b>LPIPS</b><br><code>0.2731</code><br><sub>bicubic 0.4153</sub></td>
+<td align="center"><b>Position</b><br><code>32.8%</code><br><sub>floor → ceiling</sub></td>
 </tr>
 </table>
 
@@ -66,11 +66,21 @@ python evaluate.py --input-dir /path/to/test --output-dir ./restored
 
 Measured on a held-out, **content-clustered** validation split of 309 images, using KLA's *actual* `NoisyLR` files with **blind** parameter estimation. No ground truth or prior knowledge used at inference.
 
-| | PSNR ↑ | SSIM ↑ | LPIPS ↓ | HF error ↓ |
+| | PSNR ↑ | SSIM ↑ | LPIPS ↓ | position |
 |:--|--:|--:|--:|--:|
-| Bicubic ×2 | 23.586 dB | 0.5721 | 0.4153 | 132.3% |
-| **This model** | **27.965 dB** | **0.7650** | **0.2610** | **87.5%** |
-| | `+4.379` | `+0.193` | `−0.154` | `−44.8 pts` |
+| Bicubic ×2 | 23.586 dB | 0.5721 | 0.4153 | 0% |
+| **This model** | **28.531 dB** | **0.7776** | **0.2731** | **32.8%** |
+| *GT noise-floor ceiling* | *38.674 dB* | — | — | *100%* |
+
+> [!IMPORTANT]
+> **The ceiling is real and it is measured.** The supplied ground truth is not clean
+> — its own noise floor (wavelet-MAD over all 3,200 GT images, mean of per-image
+> ceilings) caps *any* method at ≈38.7 dB. We report absolute position rather than
+> gain over bicubic, because that is the scale a reviewer comparing teams is
+> effectively using. **10.14 dB of headroom remains.**
+>
+> The estimator over-reads texture as noise, which *understates* the ceiling and
+> therefore *flatters* this position. True position is at most 32.8%.
 
 ### Gain by degradation severity
 
@@ -331,7 +341,7 @@ On **dense periodic structure** the high-pass filter reads repeating edges as sp
 
 ---
 
-## 🧪 Ablations — seven rungs, seven rejections
+## 🧪 Ablations — eight rungs, seven rejections
 
 Every component was tested as a controlled change, with decision rules fixed **before** any result was seen.
 
@@ -357,6 +367,7 @@ Every component was tested as a controlled change, with decision rules fixed **b
 ├── train.py                 reproduces the model from scratch
 ├── compare.py               visual comparison tool
 ├── test_estimator.py        the rejected estimator experiment
+├── absolute_analysis.py     ceiling + matched-baseline analysis
 ├── requirements.txt         minimal deps for evaluate.py
 ├── requirements-train.txt   full training environment
 ├── weights/model.pt         final weights (11 MB, committed)
@@ -368,7 +379,7 @@ Every component was tested as a controlled change, with decision rules fixed **b
 │   └── metrics.py           PSNR, SSIM, high-frequency error
 ├── make_figures.py          regenerates every figure below
 └── docs/
-    ├── ablations.md         7 rungs, 7 documented rejections
+    ├── ablations.md         8 rungs, 7 documented rejections
     └── figures/
         ├── 01_forward_model.png
         ├── 02_variance_stabilisation.png
@@ -409,14 +420,13 @@ python make_figures.py --gt-dir <train/GT> --lr-dir <train/NoisyLR> \
 ```bash
 pip install -r requirements-train.txt
 
-python train.py --data-dir /path/to/train --out weights/model.pt
 python train.py --data-dir /path/to/train --out weights/model.pt \
-                --hp-loss --epochs 12 --lr 1.5e-4     # final fine-tune
+                --hp-loss --epochs 200 --lr 6e-4
 ```
 
 `--data-dir` must contain `GT/` (256×256 `.npy`) and `NoisyLR/` (128×128 `.npy`) with matching filenames.
 
-**Reference run:** A100-SXM4-80GB · 40 epochs · 7200 optimiser steps · **30.2 minutes**
+**Reference run:** A100-SXM4-80GB · 200 epochs · 36,000 optimiser steps · **2h 30m**
 
 > [!CAUTION]
 > **fp32 is required.** Mixed precision produces NaN: `sinh` in the inverse VST overflows fp16 above an argument of ~11, and `ms_ssim` underflows in its five-scale product. Measured under autocast: **792 of 2891 batches** produced non-finite loss and EMA weights froze entirely.
@@ -444,6 +454,7 @@ python train.py --data-dir /path/to/train --out weights/model.pt \
 | [`docs/ablations.md`](docs/ablations.md) | Every rung, every rejection, with the measurement behind it |
 | [`src/vst.py`](src/vst.py) | The transform, its derivation and its known failure mode |
 | [`src/degrade.py`](src/degrade.py) | The verified forward operator and how it was confirmed |
+| [`docs/absolute_comparison.md`](docs/absolute_comparison.md) | Absolute position against the GT noise-floor ceiling |
 
 ---
 

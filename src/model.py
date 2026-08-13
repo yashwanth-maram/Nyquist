@@ -6,10 +6,10 @@ Architecture notes, each traceable to a measured result in docs/ablations.md:
   behaviour by the measured noise level rather than assuming a fixed severity.
 
 * dgate is a learned scalar gate on the denoiser output. Without it the network
-  applies fixed denoising and damages nearly clean input: measured -4.2 dB
+  applies fixed denoising and damages nearly clean input: measured -4.3 dB
   against bicubic on an undegraded image, because it removes detail that was
-  never noise. With the gate, clean-input PSNR rose from 27.09 to 29.80 dB and
-  spectral error dropped from 90.4% to 87.5%.
+  never noise. With the gate, clean-input PSNR rose from 27.09 to 30.28 dB
+  against a 31.40 dB bicubic reference.
 
 * hr_up + hr_ref refine at full 256x256 resolution rather than projecting
   straight from the 128x128 feature map. A bare projection cannot synthesise
@@ -82,7 +82,7 @@ class Restorer(nn.Module):
     dgate lets the network modulate denoising strength from the measured noise
     level, so a nearly clean input passes through nearly unchanged. Without it
     the model applies fixed denoising and damages low-noise images (measured:
-    -4.2 dB on clean input before the gate was added).
+    -4.3 dB on clean input before the gate was added; 30.28 dB with it).
     """
     def __init__(self, dim=64, cdim=64):
         super().__init__()

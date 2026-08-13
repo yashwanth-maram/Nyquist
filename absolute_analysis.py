@@ -445,7 +445,7 @@ def main():
     print('=' * 72); print('TASK 3 — positioning statement'); print('=' * 72)
     print(para); print(f'\n[{len(para.split())} words]\n')
 
-    open(os.path.join(args.out, 'absolute_comparison.md'), 'w').write(
+    open(os.path.join(args.out, 'absolute_comparison.md'), 'w', encoding='utf-8').write(
         '# Absolute performance\n\n' + '\n'.join(md) +
         '\n\n## Positioning\n\n' + para + '\n')
     json.dump({'rows': [{'model': r[0], 'psnr': r[1], 'ssim': r[2], 'lpips': r[3],

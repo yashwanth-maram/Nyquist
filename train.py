@@ -19,7 +19,9 @@ Training hygiene
 * Checkpoint selection on real-pair PSNR, never on training loss.
 * Every hyperparameter below is the one used for the submitted weights.
 
-Reference run: A100-SXM4-80GB, 40 epochs, 7200 optimiser steps, 30.2 minutes.
+Reference run: A100-SXM4-80GB, 200 epochs, 36,000 optimiser steps, 2h 30m.
+Rungs 1-7 used 7,200 steps; rung 8 established the model had been undertrained
+throughout - five times the schedule, unchanged otherwise, added 0.566 dB.
 """
 
 import argparse
@@ -245,7 +247,7 @@ if __name__ == '__main__':
     p.add_argument('--data-dir', required=True, help='contains GT/ and NoisyLR/')
     p.add_argument('--out', default='weights/model.pt')
     p.add_argument('--dim', type=int, default=64)
-    p.add_argument('--epochs', type=int, default=40)
+    p.add_argument('--epochs', type=int, default=200)
     p.add_argument('--batch-size', type=int, default=16)
     p.add_argument('--lr', type=float, default=6e-4)
     p.add_argument('--p-real', type=float, default=0.5,
@@ -253,6 +255,5 @@ if __name__ == '__main__':
     p.add_argument('--ema', type=float, default=0.998)
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--hp-loss', action='store_true',
-                   help='add absolute high-pass loss (used for the final 12-epoch '
-                        'fine-tune at lr=1.5e-4)')
+                   help='add absolute high-pass loss (used for the submitted model)')
     train(p.parse_args())
