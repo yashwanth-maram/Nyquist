@@ -34,7 +34,12 @@
 git clone https://github.com/yashwanth-maram/Semicon_2026.git
 cd Semicon_2026
 pip install -r requirements.txt
-python evaluate.py --input-dir /path/to/test --output-dir ./restored
+# smoke test — runs on a bare clone, no dataset needed
+python evaluate.py --input-dir samples --output-dir restored
+python preview.py  --input-dir restored --output-dir preview
+
+# full test set — point at your copy of KLA's Test_NoisyLR
+python evaluate.py --input-dir /path/to/Test_NoisyLR --output-dir restored
 ```
 
 > [!NOTE]
