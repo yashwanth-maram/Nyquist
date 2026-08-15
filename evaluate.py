@@ -236,6 +236,37 @@ def restore(net, y, ensemble=True):
     return (acc / 8).clamp(0, 1)
 
 
+def load_gray(path):
+    """Load a 2-D grayscale .npy, tolerating a singleton channel axis."""
+    a = np.squeeze(np.load(path)).astype(np.float32)
+    if a.ndim != 2:
+        raise ValueError(f"{path}: expected 2-D grayscale, got {np.load(path).shape}")
+    return a
+
+
+def restore_chunk(net, arr, dev, ensemble):
+    """Restore a stack of images, halving the batch on OOM down to one at a time.
+
+    Batched inference is the fast path and the default. If a batch will not fit
+    in memory this falls back automatically rather than aborting the run, so the
+    script still completes on a smaller card or at a larger --batch-size.
+    """
+    try:
+        y = torch.from_numpy(arr)[:, None].to(dev)
+        return restore(net, y, ensemble=ensemble).cpu().numpy()[:, 0]
+    except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+        if 'out of memory' not in str(e).lower() or len(arr) == 1:
+            raise
+        y = None
+        if dev == 'cuda':
+            torch.cuda.empty_cache()
+        half = max(1, len(arr) // 2)
+        print(f"  out of memory at batch {len(arr)}; retrying at {half}", flush=True)
+        return np.concatenate(
+            [restore_chunk(net, arr[i:i + half], dev, ensemble)
+             for i in range(0, len(arr), half)], 0)
+
+
 def find_inputs(path):
     """Return (root, [relative paths]). Accepts a file, a flat dir, or nested dirs."""
     if os.path.isfile(path):
@@ -257,8 +288,11 @@ def main():
     p.add_argument('--weights', default=None,
                    help='path to weights (default: weights/model.pt beside this script)')
     p.add_argument('--batch-size', type=int, default=16)
+    p.add_argument('--ensemble', action='store_true',
+                   help='enable 8x self-ensemble: ~+0.2 dB, 8x slower. '
+                        'Off by default so results match the reported figures.')
     p.add_argument('--no-ensemble', action='store_true',
-                   help='disable 8x self-ensemble (8x faster, ~0.2 dB lower)')
+                   help=argparse.SUPPRESS)   # accepted for compatibility; now default
     p.add_argument('--device', default=None, help='cuda | cpu (default: auto)')
     args = p.parse_args()
 
@@ -287,14 +321,15 @@ def main():
     print(f"device       : {dev}"
           f"{' (' + torch.cuda.get_device_name(0) + ')' if dev == 'cuda' else ''}")
     print(f"parameters   : {n_par/1e6:.2f} M")
-    print(f"self-ensemble: {'off' if args.no_ensemble else 'on (8x)'}")
+    print(f"self-ensemble: {'on (8x)' if args.ensemble else 'off'}")
     print(f"inputs       : {len(files)} files from {args.input_dir}")
     print(f"outputs      : {args.output_dir}", flush=True)
 
     # group by shape so batches are homogeneous (handles mixed 128 and 256 inputs)
     shapes = {}
     for f in files:
-        s = np.load(os.path.join(root, f), mmap_mode='r').shape
+        s = tuple(d for d in np.load(os.path.join(root, f), mmap_mode='r').shape
+                  if d != 1)
         shapes.setdefault(s, []).append(f)
     if len(shapes) > 1:
         print(f"note         : mixed input sizes {sorted(shapes.keys())}", flush=True)
@@ -308,13 +343,11 @@ def main():
         for shape, group in shapes.items():
             for i in range(0, len(group), args.batch_size):
                 chunk = group[i:i + args.batch_size]
-                arr = np.stack([np.load(os.path.join(root, f))
-                                for f in chunk]).astype(np.float32)
+                arr = np.stack([load_gray(os.path.join(root, f)) for f in chunk])
                 # NOTE: input is deliberately NOT clipped. Speckle pushes up to
                 # 12% of pixels beyond [0,1]; clipping destroys real signal.
-                y = torch.from_numpy(arr)[:, None].to(dev)
-                out = restore(net, y, ensemble=not args.no_ensemble)
-                out = out.cpu().numpy()[:, 0].astype(np.float32)
+                out = restore_chunk(net, arr, dev,
+                                    ensemble=args.ensemble).astype(np.float32)
                 for f, a in zip(chunk, out):
                     dst = os.path.join(args.output_dir, f)
                     d = os.path.dirname(dst)
