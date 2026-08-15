@@ -3,6 +3,7 @@
 # on a reviewer's machine.
 torch>=2.0.0
 numpy>=1.24.0
+matplotlib>=3.5
 
 # Additionally required by train.py only:
 # pytorch-msssim>=1.0.0
