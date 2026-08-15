@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%20|%203.11%20|%203.12-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Model](https://img.shields.io/badge/model-2.76M%20params%20·%2011MB-blue)]()
-[![Speed](https://img.shields.io/badge/inference-3.66%20ms%2Fimage-success)]()
+[![Speed](https://img.shields.io/badge/inference-14.58%20ms%2Fimg%20A100-success)]()
 
 **SEMICON India Hackathon 2026 · Problem Statement 1 · KLA**
 
@@ -50,6 +50,55 @@ python evaluate.py --input-dir /path/to/Test_NoisyLR --output-dir restored
 **Runs on** GPU if available, CPU otherwise. Handles `128→256` and `256→512`, including mixed sizes in one directory.
 
 <details>
+<summary><b>Run the full test set in Google Colab — one cell</b></summary>
+
+<br>
+
+Upload `Test_NoisyLR.zip` to `/content/` (drag it into the Files panel), then run:
+
+```python
+# Nyquist / KLA PS01 - clone, install, restore 400, view
+import os
+ZIP = '/content/Test_NoisyLR.zip'
+if not os.path.exists(ZIP):
+    raise SystemExit('Upload Test_NoisyLR.zip to /content/ first (drag into the Files panel)')
+
+!rm -rf /content/Semicon_2026 /content/test /content/restored /content/preview
+!git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/yashwanth-maram/Semicon_2026.git /content/Semicon_2026
+%cd /content/Semicon_2026
+!git sparse-checkout set --no-cone '/*' '!/outputs/' '!/docs/' && git checkout -q main
+!pip install -q -r requirements.txt
+!unzip -q {ZIP} -d /content/test
+!echo "test images found: $(find /content/test -name '*.npy' -not -name '._*' | wc -l)"
+
+!python evaluate.py --input-dir /content/test --output-dir /content/restored
+!python preview.py  --input-dir /content/restored --output-dir /content/preview
+
+import matplotlib.pyplot as plt, numpy as np, glob
+ins = sorted(f for f in glob.glob('/content/test/**/*.npy', recursive=True)
+             if not os.path.basename(f).startswith('._'))
+fig, ax = plt.subplots(2, 4, figsize=(16, 8))
+for i, f in enumerate(ins[:4]):
+    rel = os.path.relpath(f, '/content/test')
+    ax[0, i].imshow(np.load(f), cmap='gray')
+    ax[0, i].set_title(f'degraded 128²  {os.path.basename(f)}')
+    ax[1, i].imshow(np.load(f'/content/restored/{rel}'), cmap='gray')
+    ax[1, i].set_title('restored 256²')
+    ax[0, i].axis('off'); ax[1, i].axis('off')
+plt.tight_layout(); plt.show()
+```
+
+Writes 400 restored `.npy` to `/content/restored`, 400 viewable PNGs to
+`/content/preview`, and prints end-to-end timing. Wipes previous runs first, so
+it can be re-run freely.
+
+The sparse checkout skips `outputs/` and `docs/` to keep the clone at ~10 MB
+instead of ~197 MB — a convenience for this cell only. A plain `git clone`
+fetches everything, including the 400 committed reference outputs.
+
+</details>
+
+<details>
 <summary><b>Command-line options</b></summary>
 
 <br>
@@ -59,7 +108,7 @@ python evaluate.py --input-dir /path/to/Test_NoisyLR --output-dir restored
 | `--input-dir` | *required* | `.npy` file or directory (recursive) |
 | `--output-dir` | *required* | where restored images are written |
 | `--batch-size` | `16` | lower it if memory is tight |
-| `--no-ensemble` | off | 8× faster, ~0.2 dB lower |
+| `--ensemble` | off | 8× self-ensemble: ~+0.2 dB, 8× slower |
 | `--device` | auto | force `cuda` or `cpu` |
 | `--weights` | `weights/model.pt` | alternative checkpoint |
 
@@ -117,11 +166,22 @@ severe      ████████████████ +8.16 dB
 
 <table>
 <tr><td>Parameters</td><td align="right"><code>2.76 M</code></td><td>Weights on disk</td><td align="right"><code>11.1 MB</code></td></tr>
-<tr><td>Single pass</td><td align="right"><code>3.68 ms/img</code></td><td>8× self-ensemble</td><td align="right"><code>29.4 ms/img</code></td></tr>
-<tr><td>Full 400-image test set</td><td align="right"><code>11.8 s</code></td><td>CPU fallback</td><td align="right"><code>839 ms/img</code></td></tr>
+<tr><td>Network forward only</td><td align="right"><code>3.68 ms/img</code></td><td>End-to-end (A100)</td><td align="right"><code>14.58 ms/img</code></td></tr>
+<tr><td>Full 400-image test set (A100)</td><td align="right"><code>5.83 s</code></td><td>Fastest measured</td><td align="right"><code>9.12 ms/img</code></td></tr>
 </table>
 
-<sub>Measured on A100-SXM4-80GB. H100 is typically 1.5–2× faster for this workload.</sub>
+**End-to-end across three devices** — same code, same data, single pass,
+including blind `(a, b)` estimation and file I/O:
+
+| Device | Per image | 400 images |
+|:--|--:|--:|
+| RTX PRO 6000 Blackwell | 9.12 ms | 3.65 s |
+| A100-SXM4-80GB | 14.58 ms | 5.83 s |
+| Tesla T4 | 31.06 ms | 12.42 s |
+
+<sub>The 3.68 ms figure times the network forward pass only. End-to-end figures
+additionally include blind parameter estimation and disk I/O — what a benchmark
+harness measures. H100 sits between the A100 and Blackwell results.</sub>
 
 ---
 
