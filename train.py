@@ -2,7 +2,7 @@
 """
 KLA PS1 - training script. Reproduces the submitted model from scratch.
 
-    python train.py --data-dir /path/to/train --out weights/model.pt
+    python train.py --data-dir /path/to/train --out models/model.pt
 
 --data-dir must contain GT/ (256x256 .npy) and NoisyLR/ (128x128 .npy) with
 matching filenames.
@@ -245,7 +245,7 @@ def train(args):
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--data-dir', required=True, help='contains GT/ and NoisyLR/')
-    p.add_argument('--out', default='weights/model.pt')
+    p.add_argument('--out', default='models/model.pt')
     p.add_argument('--dim', type=int, default=64)
     p.add_argument('--epochs', type=int, default=200)
     p.add_argument('--batch-size', type=int, default=16)

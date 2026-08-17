@@ -286,7 +286,7 @@ def main():
                    help='.npy file, or directory (searched recursively)')
     p.add_argument('--output-dir', required=True, help='directory for restored .npy')
     p.add_argument('--weights', default=None,
-                   help='path to weights (default: weights/model.pt beside this script)')
+                   help='path to weights (default: models/model.pt beside this script)')
     p.add_argument('--batch-size', type=int, default=16)
     p.add_argument('--ensemble', action='store_true',
                    help='enable 8x self-ensemble: ~+0.2 dB, 8x slower. '
@@ -297,10 +297,10 @@ def main():
     args = p.parse_args()
 
     here = os.path.dirname(os.path.abspath(__file__))
-    weights = args.weights or os.path.join(here, 'weights', 'model.pt')
+    weights = args.weights or os.path.join(here, 'models', 'model.pt')
     if not os.path.exists(weights):
         sys.exit(f"ERROR: weights not found at {weights}\n"
-                 f"See README.md - place the file at weights/model.pt or pass --weights")
+                 f"See README.md - place the file at models/model.pt or pass --weights")
     if not os.path.exists(args.input_dir):
         sys.exit(f"ERROR: input path does not exist: {args.input_dir}")
 

@@ -6,7 +6,7 @@ Answers "where does this model sit on a scale that exists independently of our
 own baseline", not "how much better is it than bicubic".
 
     python absolute_analysis.py --gt-dir <train/GT> --lr-dir <train/NoisyLR> \
-                                --weights weights/model.pt --steps 7200
+                                --weights models/model.pt --steps 7200
 
 Three parts:
   TASK 1  GT noise-floor ceiling      (CPU, ~2 min, no training)
@@ -323,7 +323,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--gt-dir', required=True)
     p.add_argument('--lr-dir', required=True)
-    p.add_argument('--weights', default='weights/model.pt')
+    p.add_argument('--weights', default='models/model.pt')
     p.add_argument('--out', default='docs')
     p.add_argument('--steps', type=int, default=7200,
                    help='MUST match the step count of the model under test')

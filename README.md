@@ -31,22 +31,49 @@
 ## ⚡ Quick start
 
 ```bash
-git clone https://github.com/yashwanth-maram/Semicon_2026.git
-cd Semicon_2026
+git clone https://github.com/yashwanth-maram/Nyquist.git
+cd Nyquist
 pip install -r requirements.txt
+
 # smoke test — runs on a bare clone, no dataset needed
-python evaluate.py --input-dir samples --output-dir restored
-python preview.py  --input-dir restored --output-dir preview
+python run.py samples restored
 
 # full test set — point at your copy of KLA's Test_NoisyLR
-python evaluate.py --input-dir /path/to/Test_NoisyLR --output-dir restored
+python run.py /path/to/Test_NoisyLR restored
+```
+
+**Entry point:** `python run.py <input-dir> <output-dir>`
+
+`run.py` is the required submission entry script. It reads every `.npy` under
+`<input-dir>` (recursively), creates `<output-dir>` if it does not exist, and
+writes one restored `.npy` per input under the same filename. Outputs are
+`float32`, shape `(H, W)`, values in `[0, 1]`, free of NaN and Inf.
+
+Weights load from `models/model.pt` — committed to the repo. **No download, no
+Git LFS, no API key, no network access, no configuration, no user interaction.**
+GPU is used automatically when available; CPU otherwise.
+
+Verify the submission contract yourself at any time:
+
+```bash
+python check_submission.py            # runs run.py in a temp dir, checks every rule
+```
+
+Optional extras (not required for grading):
+
+```bash
+python preview.py --input-dir restored --output-dir preview   # PNG previews
+python evaluate.py --input-dir samples --output-dir restored  # same model, flag-style CLI
 ```
 
 > [!NOTE]
-> That is the entire procedure. `weights/model.pt` is committed to the repo — **no download step, no Git LFS, no configuration.**
+> That is the entire procedure. `models/model.pt` is committed to the repo — **no download step, no Git LFS, no configuration.**
 
 **Accepts** a single `.npy`, a flat directory, or nested subdirectories (searched recursively).
-**Produces** one restored `.npy` per input, same filename, subdirectory structure mirrored.
+**Produces** one restored `.npy` per input, same filename. Output is written flat whenever
+filenames are unique — so pointing at the parent of KLA's `NoisyLR/` folder still yields a
+flat output directory. Input subdirectory structure is mirrored only if flattening would
+cause a filename collision.
 **Runs on** GPU if available, CPU otherwise. Handles `128→256` and `256→512`, including mixed sizes in one directory.
 
 <details>
@@ -63,26 +90,26 @@ ZIP = '/content/Test_NoisyLR.zip'
 if not os.path.exists(ZIP):
     raise SystemExit('Upload Test_NoisyLR.zip to /content/ first (drag into the Files panel)')
 
-!rm -rf /content/Semicon_2026 /content/test /content/restored /content/preview
-!git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/yashwanth-maram/Semicon_2026.git /content/Semicon_2026
-%cd /content/Semicon_2026
+!rm -rf /content/Nyquist /content/test /content/restored /content/preview
+!git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/yashwanth-maram/Nyquist.git /content/Nyquist
+%cd /content/Nyquist
 !git sparse-checkout set --no-cone '/*' '!/outputs/' '!/docs/' && git checkout -q main
 !pip install -q -r requirements.txt
 !unzip -q {ZIP} -d /content/test
 !echo "test images found: $(find /content/test -name '*.npy' -not -name '._*' | wc -l)"
 
-!python evaluate.py --input-dir /content/test --output-dir /content/restored
-!python preview.py  --input-dir /content/restored --output-dir /content/preview
+!python run.py /content/test /content/restored
+!python preview.py --input-dir /content/restored --output-dir /content/preview
 
 import matplotlib.pyplot as plt, numpy as np, glob
 ins = sorted(f for f in glob.glob('/content/test/**/*.npy', recursive=True)
              if not os.path.basename(f).startswith('._'))
 fig, ax = plt.subplots(2, 4, figsize=(16, 8))
 for i, f in enumerate(ins[:4]):
-    rel = os.path.relpath(f, '/content/test')
+    name = os.path.basename(f)          # output is flat — match by filename
     ax[0, i].imshow(np.load(f), cmap='gray')
-    ax[0, i].set_title(f'degraded 128²  {os.path.basename(f)}')
-    ax[1, i].imshow(np.load(f'/content/restored/{rel}'), cmap='gray')
+    ax[0, i].set_title(f'degraded 128²  {name}')
+    ax[1, i].imshow(np.load(f'/content/restored/{name}'), cmap='gray')
     ax[1, i].set_title('restored 256²')
     ax[0, i].axis('off'); ax[1, i].axis('off')
 plt.tight_layout(); plt.show()
@@ -103,14 +130,24 @@ fetches everything, including the 400 committed reference outputs.
 
 <br>
 
-| Flag | Default | Effect |
+`run.py` takes the input and output directories **positionally**, as required by
+the submission spec:
+
+```bash
+python run.py <input-dir> <output-dir>
+```
+
+| Argument | Default | Effect |
 |:--|:--|:--|
-| `--input-dir` | *required* | `.npy` file or directory (recursive) |
-| `--output-dir` | *required* | where restored images are written |
+| `<input-dir>` | *required, positional* | `.npy` file or directory (recursive) |
+| `<output-dir>` | *required, positional* | where restored images are written (created if absent) |
 | `--batch-size` | `16` | lower it if memory is tight |
 | `--ensemble` | off | 8× self-ensemble: ~+0.2 dB, 8× slower |
 | `--device` | auto | force `cuda` or `cpu` |
-| `--weights` | `weights/model.pt` | alternative checkpoint |
+| `--weights` | `models/model.pt` | alternative checkpoint |
+
+The flag forms `--input-dir` / `--output-dir` are also accepted, so existing
+scripts and commands continue to work unchanged.
 
 </details>
 
@@ -428,14 +465,16 @@ Every component was tested as a controlled change, with decision rules fixed **b
 ## 📁 Repository
 
 ```
-├── evaluate.py              ⭐ inference — self-contained, runs as-is
+├── run.py                   ⭐ REQUIRED ENTRY POINT — python run.py <in> <out>
+├── check_submission.py      verifies every rule on the submission checklist
+├── evaluate.py              inference internals — self-contained, runs as-is
 ├── train.py                 reproduces the model from scratch
 ├── compare.py               visual comparison tool
 ├── test_estimator.py        the rejected estimator experiment
 ├── absolute_analysis.py     ceiling + matched-baseline analysis
-├── requirements.txt         minimal deps for evaluate.py
+├── requirements.txt         minimal deps for run.py
 ├── requirements-train.txt   full training environment
-├── weights/model.pt         final weights (11 MB, committed)
+├── models/model.pt          final weights (11 MB, committed)
 ├── outputs/                 restored test set (400 images)
 ├── src/
 │   ├── vst.py               noise estimation + variance-stabilising transform
@@ -455,7 +494,24 @@ Every component was tested as a controlled change, with decision rules fixed **b
 ```
 
 > [!NOTE]
-> `evaluate.py` **deliberately duplicates** the model definition rather than importing from `src/`, so a broken `PYTHONPATH` or a missing package cannot stop the benchmark from running. `src/` holds the same code in modular, documented form.
+> `run.py` is a thin entry wrapper; the model lives in `evaluate.py`, which
+> **deliberately duplicates** the model definition rather than importing from `src/`,
+> so a broken `PYTHONPATH` or a missing package cannot stop the benchmark from
+> running. `src/` holds the same code in modular, documented form.
+
+---
+
+## ✅ Submission check
+
+```bash
+python check_submission.py                 # uses samples/
+python check_submission.py /path/to/NoisyLR   # uses the real test set
+```
+
+Runs `python run.py <in> <out>` into a fresh temporary directory and verifies:
+required files present · output directory auto-created · one output per input ·
+filenames match · grayscale `(H,W)` or `(H,W,1)` · no NaN or Inf · values within
+`[0,1]` · correct 2× target resolution.
 
 ---
 
@@ -485,7 +541,7 @@ python make_figures.py --gt-dir <train/GT> --lr-dir <train/NoisyLR> \
 ```bash
 pip install -r requirements-train.txt
 
-python train.py --data-dir /path/to/train --out weights/model.pt \
+python train.py --data-dir /path/to/train --out models/model.pt \
                 --hp-loss --epochs 200 --lr 6e-4
 ```
 
