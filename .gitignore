@@ -10,3 +10,8 @@ my_test_run/
 mini_test/
 mini_out/
 compare.png
+
+test_out/
+restored/
+preview/
+fresh-check/
